@@ -1,0 +1,24 @@
+{
+  "name": "ssh-fs",
+  "version": "1.0.0",
+  "description": "create the fs api using processes",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bmeck/ssh-fs"
+  },
+  "author": "bradleymeck",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/bmeck/ssh-fs/issues"
+  },
+  "homepage": "https://github.com/bmeck/ssh-fs",
+  "dependencies": {
+    "concat-stream": "^1.4.6",
+    "process-queue": "^1.0.3",
+    "through2": "^0.6.3"
+  }
+}
