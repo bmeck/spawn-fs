@@ -1,5 +1,6 @@
 var _queue = require('process-queue').createQueue({concurrency: Infinity});
 var concat = require('concat-stream');
+var Stats = require('fs').Stats;
 var once = require('once');
 var createRangeStream = require('./util.js').createRangeStream;
 
@@ -21,19 +22,28 @@ exports.createFS = function createFS(queue, fs_opts, cb) {
       cb = opts;
       opts = null;
     }
-    var stdout;
-    var stderr;
-    queueExec.wrap({
+    var stdout = null;
+    var stderr = null;
+    var err = undefined;
+    queue.wrap({
       child: function (child, next) {
-        child.stdout.pipe(concat(function (data) {stdout = data;}));
-        child.stderr.pipe(concat(function (data) {stderr = data;}));
+        stdout = stderr = undefined;
+        child.stdout.pipe(concat(function (data) {stdout = data || null;finish()}));
+        child.stderr.pipe(concat(function (data) {stderr = data || null;finish()}));
         next(null, child);
       }
     }).push({
       spawnOptions: [bin, args, opts]
-    }, function (err) {
-      cb(err, stdout, stderr);
+    }, function (proc_err) {
+      err = proc_err;
+      finish();
     });
+    function finish() {
+      if (stderr === undefined || stdout === undefined || err === undefined) {
+        return;
+      }
+      cb(err, stdout, stderr);
+    }
   }
   fs.rename = function (oldPath, newPath, cb) {
     push('mv', ['-f', '--', oldPath, newPath], cb);
@@ -79,6 +89,42 @@ exports.createFS = function createFS(queue, fs_opts, cb) {
   };
   // TODO - will need separate parser for bsd and linux
   fs.stat = function (path, cb) {
+    if (fs_opts.platform == 'darwin') {
+      pushExec('stat', ['-f', '%d %i %p %l %u %g %r %z %a %m %c %k %b', '--', path], parseStat);
+    }
+    else {
+      pushExec('stat', ['-c', '%d %i %a %h %u %g %d %s %X %Y %Z %o %b'], parseStat)
+    }
+    function parseStat(err, stdout, stderr) {
+      if (err) {
+        cb(err);
+      }
+      else {
+        var mode = new Stats();
+        var parts = /^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)/.exec(String(stdout));
+        mode.dev = parseInt(parts[1], 10);
+        mode.mode = parseInt(parts[3], 8);
+        mode.nlink = parseInt(parts[4], 10);
+        mode.uid = parseInt(parts[5], 10);
+        mode.gid = parseInt(parts[6], 10);
+        mode.rdev = parseInt(parts[7], 10);
+        mode.blksize = parseInt(parts[12], 10);
+        mode.ino = parseInt(parts[2], 10);
+        mode.size = parseInt(parts[8], 10);
+        mode.blocks = parseInt(parts[13], 10);
+        mode.atime = new Date(parseInt(parts[9], 10)*1000);
+        mode.mtime = new Date(parseInt(parts[10], 10)*1000);
+        mode.ctime = new Date(parseInt(parts[11], 10)*1000);
+
+        if (mode.isCharacterDevice() || mode.isBlockDevice()) {
+          mode.dev = 0; 
+        }
+        else {
+          mode.rdev = 0; 
+        }
+        cb(null, mode);
+      }
+    }
   };
   fs.link = function (srcpath, dstpath, cb) {
     push('ln', ['--', srcpath, dstpath], cb);
@@ -207,7 +253,6 @@ exports.createFS = function createFS(queue, fs_opts, cb) {
       child: function (child, next) {
         if (options.mode) {
           fs.chmod(path, options.mode, function (err) {
-             console.log('DONE CHMOD', arguments);
             if (err) ret.destroy(err);
             else startPipe();
           })
@@ -235,7 +280,6 @@ exports.createFS = function createFS(queue, fs_opts, cb) {
     }, function (err){
        if (err) ret.destroy(err);
     })
-    console.log(bin,args)
     return ret;
   }
   fs.readFile = function (filename, options, callback) {
