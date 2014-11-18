@@ -1,6 +1,6 @@
 {
   "name": "ssh-fs",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "create the fs api using processes",
   "main": "index.js",
   "scripts": {
