@@ -1,16 +1,26 @@
-var _queue = require('process-queue').createQueue();
+var _queue = require('process-queue').createQueue({concurrency: Infinity});
+var concat = require('concat-stream');
+var once = require('once');
 var createRangeStream = require('./util.js').createRangeStream;
 
-exports.createFS = function createFS(queue, opts, cb) {
+exports.createFS = function createFS(queue, fs_opts, cb) {
   queue = queue || _queue;
-  opts = opts || Object.create(null);
+  fs_opts = fs_opts || Object.create(null);
   var fs = Object.create(null);
   function push(bin, args, opts, cb) {
+    if (typeof opts === 'function') {
+      cb = opts;
+      opts = null;
+    }
     queue.push({
       spawnOptions: [bin, args, opts]
-    }. cb);
+    }, cb);
   }
   function pushExec(bin, args, opts, cb) {
+    if (typeof opts === 'function') {
+      cb = opts;
+      opts = null;
+    }
     var stdout;
     var stderr;
     queueExec.wrap({
@@ -164,13 +174,16 @@ exports.createFS = function createFS(queue, opts, cb) {
     if (options.flags == 'a' || options.flags == 'a+') {
       appending = true;
     }
-    if (opts.platform != 'darwin') {
+    if (fs_opts.platform != 'darwin') {
       if (exclusive) {
         conv.push('excl');
       }
       if (appending) {
         conv.push('append');
         args.push('seek='+start);
+      }
+      if (options.mode != null) {
+        
       }
       if (conv.length) args.push('conv=' + conv.join(','));
     }
@@ -186,23 +199,35 @@ exports.createFS = function createFS(queue, opts, cb) {
         args = ['-c', '--',  (exclusive ? '[ ! -f '+ path.replace(/\W/g,'\\$&') + ' ] && ' : '') + 'cat | dd ' + args.join(' ')];
       }
     }
-    // https://github.com/joyent/node/issues/8740
+    // indirection so we can chmod 
     var ret = require('through2')(function (c,e,b) {
       b(null, c);
     });
     queue.wrap({
       child: function (child, next) {
-        if (!appending) {
-          for (var i = 0; i < start; i+= nul.length) {
-            if (i + nul.length > start) {
-              child.stdin.write(nul.slice(0, start - i));
-            }
-            else {
-              child.stdin.write(nul);
+        if (options.mode) {
+          fs.chmod(path, options.mode, function (err) {
+             console.log('DONE CHMOD', arguments);
+            if (err) ret.destroy(err);
+            else startPipe();
+          })
+        }
+        else {
+          startPipe();
+        }
+        function startPipe() {
+          if (!appending) {
+            for (var i = 0; i < start; i+= nul.length) {
+              if (i + nul.length > start) {
+                child.stdin.write(nul.slice(0, start - i));
+              }
+              else {
+                child.stdin.write(nul);
+              }
             }
           }
+          ret.pipe(child.stdin);
         }
-        ret.pipe(child.stdin);
         next(null, child); 
       }
     }).push({
@@ -212,6 +237,38 @@ exports.createFS = function createFS(queue, opts, cb) {
     })
     console.log(bin,args)
     return ret;
+  }
+  fs.readFile = function (filename, options, callback) {
+    if (typeof options === 'function') {
+      callback = options;
+      options = null;
+    }
+    options = Object.create(options || null);
+    delete options.start;
+    delete options.end;
+    options.flags = options.flag;
+    callback = once(callback);
+
+    var stream = concat(function (data) {
+      callback(null, data);
+    }); 
+    fs.createReadStream(filename, options).pipe(stream); 
+    stream.on('error', callback);
+  }
+  fs.writeFile = function (filename, data, options, callback) {
+    if (typeof options === 'function') {
+      callback = options;
+      options = null;
+    }
+    options = Object.create(options || null);
+    delete options.start;
+    delete options.end;
+    options.flags = options.flag;
+    callback = once(callback);
+ 
+    var stream = fs.createWriteStream(filename, options)
+    stream.end(data);
+    stream.on('error', callback);
   }
   cb(null, fs);
 }
