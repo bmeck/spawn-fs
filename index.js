@@ -93,7 +93,7 @@ exports.createFS = function createFS(queue, fs_opts, cb) {
       pushExec('stat', ['-f', '%d %i %p %l %u %g %r %z %a %m %c %k %b', '--', path], parseStat);
     }
     else {
-      pushExec('stat', ['-c', '%d %i %a %h %u %g %d %s %X %Y %Z %o %b'], parseStat)
+      pushExec('stat', ['-c', '%d %i %a %h %u %g %d %s %X %Y %Z %o %b', '--', path], parseStat)
     }
     function parseStat(err, stdout, stderr) {
       if (err) {
